@@ -1,8 +1,6 @@
 # LLM-Controlled Sawyer Robot
 
-This repository contains a ROS-based implementation for controlling the Sawyer robot using natural language commands processed through OpenAI’s GPT models. The system allows users to issue high-level textual commands such as "move forward by 10 centimeters", which are interpreted and converted into executable robot actions via MoveIt.
-
-The setup runs entirely in simulation using Gazebo and does not rely on visual input or object detection. This version focuses on command parsing and execution based solely on user intent and predefined spatial semantics.
+This repository provides a ROS-based implementation for controlling the Sawyer robot using natural language commands interpreted by OpenAI’s GPT API. The system converts language commands into executable robot actions via MoveIt in a simulated Gazebo environment. Visual input is not used; control is based solely on textual instructions.
 
 ---
 
@@ -11,14 +9,14 @@ The setup runs entirely in simulation using Gazebo and does not rely on visual i
 ```
 ros_ws/
 ├── src/
-│   ├── sawyer_llm_executor/         # Custom package for GPT-based control
+│   ├── sawyer_llm_executor/
 │   │   ├── scripts/
-│   │   │   ├── fake_joint_states.py        # Publishes static joint states if robot isn't broadcasting
-│   │   │   ├── joint_states_relay.py       # Relays /robot/joint_states to /joint_states
-│   │   │   ├── llm_command_listener.py     # Main node subscribing to user commands and triggering actions
-│   │   │   ├── gpt.py                      # Handles GPT-4 API interaction and JSON parsing
-│   │   │   └── sawyer_action.py            # Executes parsed commands using MoveIt
-│   └── (remaining standard Sawyer SDK and Intera packages)
+│   │   │   ├── fake_joint_states.py
+│   │   │   ├── joint_states_relay.py
+│   │   │   ├── llm_command_listener.py
+│   │   │   ├── gpt.py
+│   │   │   └── sawyer_action.py
+│   └── (standard Intera SDK, simulator, and MoveIt packages)
 ```
 
 ---
@@ -27,10 +25,10 @@ ros_ws/
 
 - Ubuntu 20.04
 - ROS Noetic
-- Intera SDK and Sawyer simulator
+- Intera SDK and Sawyer Simulator
 - MoveIt for Sawyer
 - Python 3.x
-- OpenAI API Key (for GPT access)
+- OpenAI API Key (exported via environment variable `OPENAI_API_KEY`)
 
 ---
 
@@ -54,57 +52,66 @@ ros_ws/
    source devel/setup.bash
    ```
 
-4. **Launch the Gazebo Simulation**
+---
+
+## Launch Sequence (Strict Order)
+
+1. **Launch the Gazebo World with Sawyer**
    ```bash
    roslaunch sawyer_gazebo sawyer_world.launch
    ```
 
-5. **Publish Joint States**
-   - Option A: If robot is not broadcasting joint states
+2. **Start the Intera Interface**
+   ```bash
+   rosrun intera_interface joint_trajectory_action_server.py
+   ```
+
+3. **Launch Sawyer MoveIt Configuration**
+   ```bash
+   roslaunch sawyer_moveit_config sawyer_moveit.launch
+   ```
+
+4. **Publish Joint States**
+   - If robot is not publishing `/robot/joint_states`, use:
      ```bash
      rosrun sawyer_llm_executor fake_joint_states.py
      ```
-   - Option B: If `/robot/joint_states` exists
+   - Otherwise, relay the joint states:
      ```bash
      rosrun sawyer_llm_executor joint_states_relay.py
      ```
 
-6. **Run the GPT Command Listener**
+5. **Run the GPT Command Listener**
    ```bash
    rosrun sawyer_llm_executor llm_command_listener.py
    ```
 
 ---
 
-## Example Workflow
+## Sending Commands
 
-When the `llm_command_listener.py` node is running, publish a text command via terminal:
+Once the GPT listener node is active, you can publish text commands:
 
 ```bash
 rostopic pub /llm/user_input std_msgs/String "data: 'move forward by 10 centimeters'"
 ```
 
-The GPT model returns a structured JSON response like:
-
-```json
-{
-  "actions": ["move_to"],
-  "position": [0.7, 0.0]
-}
-```
-
-This is then executed via the `sawyer_action.py` MoveIt interface.
+The system will:
+1. Send the command to the GPT API
+2. Parse the returned JSON structure
+3. Use MoveIt to execute corresponding actions
 
 ---
 
 ## Notes
 
-- The gripper is optional. If not detected, gripper-related commands will be safely ignored.
-- All Cartesian movements are relative to a fixed z-height (default: 0.6m).
-- The system assumes a clear workspace and does not perform collision checking beyond basic planning validation.
+- Default z-height is 0.6 meters.
+- Gripper actions (open/close) will be ignored if the robot does not detect a gripper.
+- The MoveIt planner handles IK and motion; collision avoidance is not guaranteed.
+- Requires a valid OpenAI GPT API key via `OPENAI_API_KEY`.
 
 ---
 
 ## Acknowledgements
 
-This project builds on the official Sawyer SDK, MoveIt, and OpenAI’s GPT API. It was developed for experimental research in language-conditioned robot control.
+This project builds upon the official Rethink Robotics Sawyer SDK, Gazebo simulation environment, MoveIt, and OpenAI's GPT models.
