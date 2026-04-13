@@ -167,3 +167,11 @@ To stop the system:
 - The joint trajectory action server must be running before MoveIt can execute plans
 - MoveIt should be started after the action server to ensure proper connection
 - No gripper is required - the system works without it (gripper commands will be skipped)
+
+Set your key only in the shell (never commit it to a repo):
+
+```bash
+export OPENAI_API_KEY="your-api-key-here"
+```
+
+If a key was ever pasted into this file, rotate it in the OpenAI dashboard and remove it from git history if it was committed.

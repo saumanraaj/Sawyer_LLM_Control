@@ -11,9 +11,27 @@ class gpt_api:
         prompt = f"""
 You are controlling a Sawyer robot arm.
 
-Output a JSON object with:
-- "actions": list of actions. Use move_relative(dx, dy, dz) for relative moves — each move carries its own offset in meters.
-- "position": [x, y] for move_to — absolute target. Use when user specifies explicit position. Assume z=0.6.
+Output JSON only. Prefer this schema:
+{{
+  "operations": [
+    {{
+      "op": "move_relative",
+      "dx": 0.1,
+      "dy": 0.0,
+      "dz": 0.0,
+      "magnitude_source": "explicit|vague",
+      "frame": "base|world|null",
+      "frame_source": "explicit|implicit"
+    }}
+  ],
+  "parser_meta": {{
+    "parse_confidence": 0.0-1.0
+  }}
+}}
+
+You may include legacy compatibility fields:
+- "actions": list of actions (move_relative(dx, dy, dz), move_to, open_gripper, close_gripper, lift(z))
+- "position": [x, y] for move_to
 
 For relative moves: use move_relative(dx, dy, dz). Forward=+x, Right=-y, Left=+y, Up=+z.
   - 10 cm forward = move_relative(0.1, 0, 0)
@@ -25,25 +43,28 @@ For relative moves: use move_relative(dx, dy, dz). Forward=+x, Right=-y, Left=+y
 **Examples:**
 
 User command: "move forward by 10 centimeters"
-Output: {{ "actions": ["move_relative(0.1, 0, 0)"], "position": [0.6, 0.0] }}
+Output: {{ "operations": [{{"op":"move_relative","dx":0.1,"dy":0.0,"dz":0.0,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}], "parser_meta": {{"parse_confidence": 0.95}}, "actions": ["move_relative(0.1, 0, 0)"], "position": [0.6, 0.0] }}
 
 User command: "move right by 20 centimeters"
-Output: {{ "actions": ["move_relative(0, -0.2, 0)"], "position": [0.6, 0.0] }}
+Output: {{ "operations": [{{"op":"move_relative","dx":0.0,"dy":-0.2,"dz":0.0,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}], "parser_meta": {{"parse_confidence": 0.95}}, "actions": ["move_relative(0, -0.2, 0)"], "position": [0.6, 0.0] }}
 
 User command: "move forward by 10 cm then right by 5 cm"
-Output: {{ "actions": ["move_relative(0.1, 0, 0)", "move_relative(0, -0.05, 0)"], "position": [0.6, 0.0] }}
+Output: {{ "operations": [{{"op":"move_relative","dx":0.1,"dy":0.0,"dz":0.0,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}, {{"op":"move_relative","dx":0.0,"dy":-0.05,"dz":0.0,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}], "parser_meta": {{"parse_confidence": 0.93}}, "actions": ["move_relative(0.1, 0, 0)", "move_relative(0, -0.05, 0)"], "position": [0.6, 0.0] }}
 
 User command: "move left 5 cm, then forward 15 cm, then up 3 cm"
-Output: {{ "actions": ["move_relative(0, 0.05, 0)", "move_relative(0.15, 0, 0)", "move_relative(0, 0, 0.03)"], "position": [0.6, 0.0] }}
+Output: {{ "operations": [{{"op":"move_relative","dx":0.0,"dy":0.05,"dz":0.0,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}, {{"op":"move_relative","dx":0.15,"dy":0.0,"dz":0.0,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}, {{"op":"move_relative","dx":0.0,"dy":0.0,"dz":0.03,"magnitude_source":"explicit","frame":"base","frame_source":"implicit"}}], "parser_meta": {{"parse_confidence": 0.9}}, "actions": ["move_relative(0, 0.05, 0)", "move_relative(0.15, 0, 0)", "move_relative(0, 0, 0.03)"], "position": [0.6, 0.0] }}
 
 User command: "move to position (0.5, 0.1)"
-Output: {{ "actions": ["move_to"], "position": [0.5, 0.1] }}
+Output: {{ "operations": [{{"op":"move_to","target_pose":{{"x":0.5,"y":0.1,"z":0.6}},"frame":"base","frame_source":"implicit"}}], "parser_meta": {{"parse_confidence": 0.95}}, "actions": ["move_to"], "position": [0.5, 0.1] }}
 
 User command: "move forward 5 cm and open gripper"
 Output: {{ "actions": ["move_relative(0.05, 0, 0)", "open_gripper"], "position": [0.6, 0.0] }}
 
 User command: "close gripper then lift by 0.1"
-Output: {{ "actions": ["close_gripper", "lift(0.1)"], "position": [0.6, 0.0] }}
+Output: {{ "operations": [{{"op":"close_gripper"}}, {{"op":"lift","dz":0.1}}], "parser_meta": {{"parse_confidence": 0.9}}, "actions": ["close_gripper", "lift(0.1)"], "position": [0.6, 0.0] }}
+
+User command: "move down a little"
+Output: {{ "operations": [{{"op":"move_relative","dx":0.0,"dy":0.0,"dz":null,"magnitude_source":"vague","frame":"base","frame_source":"implicit"}}], "parser_meta": {{"parse_confidence": 0.55}} }}
 
 ---
 Only output valid JSON — no extra words.
@@ -85,6 +106,8 @@ User command: "{user_command}"
                 json_str = message_content
             
             output = json.loads(json_str)
+            if "parse_confidence" not in output:
+                output["parse_confidence"] = output.get("parser_meta", {}).get("parse_confidence", 0.75)
             return output
 
         except json.JSONDecodeError as e:

@@ -11,6 +11,7 @@ class sawyer_actions():
     def __init__(self):
         rospy.loginfo("Initializing Sawyer Actions...")
         self.latest_joint_state_time = None
+
         # Conservative workspace bounds to prevent unreachable Cartesian targets.
         self.workspace_limits = {
             "x": (0.35, 0.95),

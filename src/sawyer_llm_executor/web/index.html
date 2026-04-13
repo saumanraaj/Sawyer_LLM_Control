@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sawyer HRI Console</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="topbar">
+      <h1>Sawyer HRI Console</h1>
+      <div id="statusChip" class="chip">Idle</div>
+    </header>
+
+    <main class="layout">
+      <section class="panel chat-panel">
+        <h2>Interaction Feed</h2>
+        <div id="intentBar" class="intent-bar hidden"></div>
+        <div id="feed" class="feed"></div>
+        <div id="quickPicks" class="quick-picks hidden"></div>
+        <div class="actions" id="actionRow">
+          <button id="proceedBtn" class="hidden">Proceed</button>
+          <button id="cancelBtn" class="hidden">Stop</button>
+          <button id="editBtn" class="hidden">Revise command…</button>
+        </div>
+        <div class="composer">
+          <input id="textInput" type="text" placeholder="Type a motion command, or a clarification…">
+          <button id="sendBtn">Send</button>
+        </div>
+      </section>
+
+      <aside class="panel side-panel">
+        <h2>Session (live)</h2>
+        <div id="sessionBox" class="mono small"></div>
+        <h2>Session story</h2>
+        <div id="story" class="story mono small"></div>
+        <h2>Timeline</h2>
+        <div id="timeline" class="timeline mono small"></div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="editModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Revise command</h3>
+      <p id="editReason" class="small muted"></p>
+      <textarea id="editArea" rows="3" placeholder="e.g. move left by 10 cm"></textarea>
+      <div class="modal-actions">
+        <button id="editSubmit">Submit revision</button>
+        <button id="editClose" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
