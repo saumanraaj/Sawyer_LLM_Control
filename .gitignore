@@ -1,0 +1,57 @@
+# Catkin / ROS workspace build products
+/build/
+/devel/
+/install/
+/logs/
+/.catkin_workspace
+*.bag
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+.venv_*/
+
+# CMake / C++
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.a
+*.o
+*.so.*
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local env / secrets (never commit)
+.env
+.env.*
+*.pem
+secrets/
+
+# Cursor / local tooling (optional; remove these lines if you want them tracked)
+.cursor/
+
+# Large bundled trees you usually do not want on GitHub (uncomment if applicable)
+# ros1_ws/
