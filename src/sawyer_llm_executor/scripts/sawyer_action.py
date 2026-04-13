@@ -1,35 +1,57 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 import geometry_msgs.msg
 import moveit_commander
 from sensor_msgs.msg import JointState
-from intera_interface import Gripper
+from intera_interface import Gripper, get_current_gripper_interface, SimpleClickSmartGripper
 
 class sawyer_actions():
 
     def __init__(self):
         rospy.loginfo("Initializing Sawyer Actions...")
         self.latest_joint_state_time = None
+        # Conservative workspace bounds to prevent unreachable Cartesian targets.
+        self.workspace_limits = {
+            "x": (0.35, 0.95),
+            "y": (-0.60, 0.60),
+            "z": (0.10, 0.85),
+        }
         moveit_commander.roscpp_initialize([])
         self.group = moveit_commander.MoveGroupCommander("right_arm")
         self.group.set_planning_time(10.0)
 
         try:
-            self.gripper = Gripper('right_gripper')
-            if not self.gripper.is_ready():
-                raise Exception("Gripper not ready")
+            # Use auto-detection to support both electric gripper and Smart Tool Plate
+            self.gripper = get_current_gripper_interface()
+            self.is_smart_tool_plate = isinstance(self.gripper, SimpleClickSmartGripper)
+            
+            # For Smart Tool Plate, check if it needs initialization
+            if self.is_smart_tool_plate:
+                if self.gripper.needs_init():
+                    rospy.loginfo("Initializing Smart Tool Plate gripper...")
+                    self.gripper.initialize()
+                if not self.gripper.is_ready():
+                    raise Exception("Smart Tool Plate gripper not ready")
+            else:
+                # Electric gripper
+                if not self.gripper.is_ready():
+                    raise Exception("Gripper not ready")
+            
             self.has_gripper = True
-            rospy.loginfo("Gripper detected and ready.")
+            gripper_type = "Smart Tool Plate" if self.is_smart_tool_plate else "Electric Gripper"
+            rospy.loginfo(f"{gripper_type} detected and ready.")
         except Exception as e:
             self.has_gripper = False
+            self.is_smart_tool_plate = False
             rospy.logwarn(f"No gripper detected: {e}")
 
         rospy.Subscriber("/joint_states", JointState, self.joint_state_callback)
         rospy.loginfo("Sawyer Actions Initialized.")
 
     def joint_state_callback(self, msg):
-        self.latest_joint_state_time = msg.header.stamp
+        # Use receive time, not msg.header.stamp, so freshness works even if robot/workstation clocks differ
+        self.latest_joint_state_time = rospy.Time.now()
 
     def wait_for_fresh_joint_state(self, threshold_sec=2.0, timeout_sec=10.0):
         rospy.loginfo("Waiting for fresh /joint_states...")
@@ -51,9 +73,38 @@ class sawyer_actions():
 
             rate.sleep()
 
+    def move_relative(self, dx, dy, dz=0.0):
+        """Move end-effector relative to current pose. Forward=+x, Right=-y, Up=+z (base frame)."""
+        if not self.wait_for_fresh_joint_state():
+            rospy.logwarn("Skipping move_relative due to stale joint states.")
+            return False
+
+        current_pose = self.group.get_current_pose().pose
+        target_x = current_pose.position.x + dx
+        target_y = current_pose.position.y + dy
+        target_z = current_pose.position.z + dz
+        if not self.is_target_within_workspace(target_x, target_y, target_z):
+            rospy.logerr(
+                "Target not reachable (workspace limit): "
+                f"({target_x:.3f}, {target_y:.3f}, {target_z:.3f}) "
+                f"outside x{self.workspace_limits['x']} y{self.workspace_limits['y']} z{self.workspace_limits['z']}"
+            )
+            return False
+
+        rospy.loginfo(f"move_relative(dx={dx:.3f}, dy={dy:.3f}, dz={dz:.3f}) -> target ({target_x:.3f}, {target_y:.3f}, {target_z:.3f})")
+        return self.move_to(target_x, target_y, target_z)
+
     def move_to(self, x, y, z=0.6):
         if not self.wait_for_fresh_joint_state():
             rospy.logwarn("Skipping move due to stale joint states.")
+            return False
+
+        if not self.is_target_within_workspace(x, y, z):
+            rospy.logerr(
+                "Target not reachable (workspace limit): "
+                f"({x:.3f}, {y:.3f}, {z:.3f}) "
+                f"outside x{self.workspace_limits['x']} y{self.workspace_limits['y']} z{self.workspace_limits['z']}"
+            )
             return False
 
         pose = geometry_msgs.msg.Pose()
@@ -80,20 +131,73 @@ class sawyer_actions():
             rospy.logerr("Planning failed for move_to command.")
             return False
 
+    def is_target_within_workspace(self, x, y, z):
+        return (
+            self.workspace_limits["x"][0] <= x <= self.workspace_limits["x"][1]
+            and self.workspace_limits["y"][0] <= y <= self.workspace_limits["y"][1]
+            and self.workspace_limits["z"][0] <= z <= self.workspace_limits["z"][1]
+        )
+
     def close_gripper(self):
         if not self.has_gripper:
             rospy.logwarn("Skipping close_gripper: No gripper attached.")
             return
         rospy.loginfo("Closing gripper...")
         try:
-            if not self.gripper.is_calibrated():
-                rospy.loginfo("Calibrating gripper...")
-                self.gripper.calibrate()
-                rospy.sleep(1.0)
-            self.gripper.close()
+            if self.is_smart_tool_plate:
+                # Smart Tool Plate: use grip signal
+                if not self.gripper.is_ready():
+                    rospy.logwarn("Gripper not ready, attempting to initialize...")
+                    if self.gripper.needs_init():
+                        self.gripper.initialize()
+                # Check available signals
+                signals = self.gripper.get_ee_signals()
+                rospy.loginfo(f"Available gripper signals: {signals}")
+                # Enable power signal first (if available)
+                if "power" in signals:
+                    rospy.loginfo("Enabling gripper power...")
+                    self.gripper.set_ee_signal_value("power", True)
+                    rospy.sleep(0.5)
+                if "grip" in signals:
+                    # Check current state using open/closed signals
+                    is_open = self.gripper.get_ee_signal_value("open") if "open" in signals else None
+                    is_closed = self.gripper.get_ee_signal_value("closed") if "closed" in signals else None
+                    rospy.loginfo(f"Current state - open: {is_open}, closed: {is_closed}")
+                    
+                    # Check current grip value
+                    current_grip = self.gripper.get_ee_signal_value("grip")
+                    rospy.loginfo(f"Current grip signal value: {current_grip}")
+                    
+                    # Toggle approach: set to opposite first, then desired value to trigger change
+                    if not is_closed:
+                        rospy.loginfo("Toggling grip signal to close...")
+                        # First set to False to ensure state change
+                        self.gripper.set_ee_signal_value("grip", False)
+                        rospy.sleep(0.1)
+                        # Then set to True to close
+                        self.gripper.set_ee_signal_value("grip", True)
+                        rospy.sleep(0.1)
+                        new_grip = self.gripper.get_ee_signal_value("grip")
+                        rospy.loginfo(f"Grip signal set to: {new_grip}")
+                        rospy.loginfo("Waiting for actuation...")
+                        # Wait for actuation time (0.4s from config)
+                        rospy.sleep(0.5)
+                    else:
+                        rospy.loginfo("Gripper is already closed.")
+                else:
+                    rospy.logerr(f"'grip' signal not found. Available signals: {signals}")
+            else:
+                # Electric gripper
+                if not self.gripper.is_calibrated():
+                    rospy.loginfo("Calibrating gripper...")
+                    self.gripper.calibrate()
+                    rospy.sleep(1.0)
+                self.gripper.close()
             rospy.sleep(2.0)
         except Exception as e:
             rospy.logerr(f"Gripper error: {e}")
+            import traceback
+            rospy.logerr(traceback.format_exc())
 
     def open_gripper(self):
         if not self.has_gripper:
@@ -101,10 +205,56 @@ class sawyer_actions():
             return
         rospy.loginfo("Opening gripper...")
         try:
-            self.gripper.open()
+            if self.is_smart_tool_plate:
+                # Smart Tool Plate: use grip signal (False = open)
+                if not self.gripper.is_ready():
+                    rospy.logwarn("Gripper not ready, attempting to initialize...")
+                    if self.gripper.needs_init():
+                        self.gripper.initialize()
+                # Check available signals
+                signals = self.gripper.get_ee_signals()
+                rospy.loginfo(f"Available gripper signals: {signals}")
+                # Enable power signal first (if available)
+                if "power" in signals:
+                    rospy.loginfo("Enabling gripper power...")
+                    self.gripper.set_ee_signal_value("power", True)
+                    rospy.sleep(0.5)
+                if "grip" in signals:
+                    # Check current state using open/closed signals
+                    is_open = self.gripper.get_ee_signal_value("open") if "open" in signals else None
+                    is_closed = self.gripper.get_ee_signal_value("closed") if "closed" in signals else None
+                    rospy.loginfo(f"Current state - open: {is_open}, closed: {is_closed}")
+                    
+                    # Check current grip value
+                    current_grip = self.gripper.get_ee_signal_value("grip")
+                    rospy.loginfo(f"Current grip signal value: {current_grip}")
+                    
+                    # Toggle approach: set to opposite first, then desired value to trigger change
+                    if not is_open:
+                        rospy.loginfo("Toggling grip signal to open...")
+                        # First set to True to ensure state change
+                        self.gripper.set_ee_signal_value("grip", True)
+                        rospy.sleep(0.1)
+                        # Then set to False to open
+                        self.gripper.set_ee_signal_value("grip", False)
+                        rospy.sleep(0.1)
+                        new_grip = self.gripper.get_ee_signal_value("grip")
+                        rospy.loginfo(f"Grip signal set to: {new_grip}")
+                        rospy.loginfo("Waiting for actuation...")
+                        # Wait for actuation time (0.4s from config)
+                        rospy.sleep(0.5)
+                    else:
+                        rospy.loginfo("Gripper is already open.")
+                else:
+                    rospy.logerr(f"'grip' signal not found. Available signals: {signals}")
+            else:
+                # Electric gripper
+                self.gripper.open()
             rospy.sleep(2.0)
         except Exception as e:
             rospy.logerr(f"Gripper error: {e}")
+            import traceback
+            rospy.logerr(traceback.format_exc())
 
     def lift(self, delta_z=0.1):
         if not self.wait_for_fresh_joint_state():

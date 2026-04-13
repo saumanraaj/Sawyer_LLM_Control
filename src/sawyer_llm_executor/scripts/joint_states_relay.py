@@ -1,9 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 from sensor_msgs.msg import JointState
 
 def callback(msg):
+    # Use current time so MoveIt's "recent timestamp" check passes when clocks differ (robot vs workstation)
+    msg.header.stamp = rospy.Time.now()
     pub.publish(msg)
 
 if __name__ == '__main__':

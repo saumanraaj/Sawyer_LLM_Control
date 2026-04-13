@@ -23,7 +23,7 @@ robot_hostname="192.168.0.103"
 
 # Set *Either* your computers ip address or hostname. Please note if using
 # your_hostname that this must be resolvable to the Robot.
-your_ip="192.168.0.105"
+your_ip="192.168.0.100"
 your_hostname=""
 
 # Specify ROS distribution (e.g. kinetic, indigo, hydro, etc.)
@@ -147,6 +147,7 @@ has been built (source /opt/ros/\${ros_version}/setup.sh; catkin_make).\n\
 
 	[ -n "${your_ip}" ] && export ROS_IP="${your_ip}"
 	[ -n "${your_hostname}" ] && export ROS_HOSTNAME="${your_hostname}"
+	# Port 3000 = Intera Studio (web UI). ROS Master = 11311.
 	[ -n "${robot_hostname}" ] && \
 		export ROS_MASTER_URI="http://${robot_hostname}:11311"
 

@@ -1,0 +1,142 @@
+time: 
+  secs: 1769649507
+  nsecs: 672285261
+device: 
+  name: "io"
+  status: 
+    tag: "ready"
+    id: ''
+    detail: "{\"msg\":\"Connected.\"}"
+ports: []
+signals: 
+  - 
+    name: "port_sink_0"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_1"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_2"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_3"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_4"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_5"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_6"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_sink_7"
+    format: "{\"role\":\"output\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_0"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_1"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_2"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_3"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_4"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_5"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_6"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+  - 
+    name: "port_source_7"
+    format: "{\"role\":\"input\",\"type\":\"bool\"}"
+    data: "[false]"
+    status: 
+      tag: "ready"
+      id: ''
+      detail: "{}"
+commands: []
+responses: []
+---
