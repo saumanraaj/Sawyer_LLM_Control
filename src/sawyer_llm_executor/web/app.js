@@ -19,6 +19,13 @@ const editClose = document.getElementById("editClose");
 let state = { mode: "idle" };
 let lastEventId = 0;
 let lastMode = "idle";
+const renderedEventIds = new Set();
+const INTERACTIVE_MODES = new Set([
+  "awaiting_clarification",
+  "awaiting_confirmation",
+  "awaiting_warning_ack",
+  "editing",
+]);
 
 function humanizeMode(mode) {
   const m = {
@@ -47,16 +54,60 @@ function addStoryLine(text) {
 function addMessage(text, cssClass) {
   const div = document.createElement("div");
   div.className = `msg ${cssClass}`;
+  div.dataset.kind = cssClass === "user" ? "user" : "prompt";
   div.textContent = text;
   feed.appendChild(div);
   feed.scrollTop = feed.scrollHeight;
 }
 
 function addTimeline(eventObj) {
-  const div = document.createElement("div");
-  div.textContent = `[${eventObj.event_id}] ${eventObj.event_type} ${JSON.stringify(eventObj.payload)}`;
-  timeline.appendChild(div);
+  const wrap = document.createElement("div");
+  wrap.className = "timeline-item";
+
+  const header = document.createElement("div");
+  header.className = "timeline-header";
+
+  const badge = document.createElement("span");
+  badge.className = `timeline-badge ${eventObj.event_type || "unknown"}`;
+  badge.textContent = `#${eventObj.event_id} ${eventObj.event_type || "event"}`;
+
+  const summary = document.createElement("span");
+  summary.className = "timeline-summary";
+  summary.textContent = summarizeEvent(eventObj);
+
+  header.appendChild(badge);
+  header.appendChild(summary);
+  wrap.appendChild(header);
+
+  const details = document.createElement("details");
+  details.className = "timeline-details";
+
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "Details";
+
+  const payload = document.createElement("pre");
+  payload.textContent = JSON.stringify(eventObj.payload || {}, null, 2);
+
+  details.appendChild(detailsSummary);
+  details.appendChild(payload);
+  wrap.appendChild(details);
+
+  timeline.appendChild(wrap);
   timeline.scrollTop = timeline.scrollHeight;
+}
+
+function summarizeEvent(eventObj) {
+  const payload = eventObj.payload || {};
+  const et = eventObj.event_type || "";
+  if (et === "ui_command") return payload.text || "User command sent";
+  if (et === "prompt") return payload.message || `${payload.prompt_type || "Prompt"} requested`;
+  if (et === "state") {
+    const mode = payload.mode ? humanizeMode(payload.mode) : "State update";
+    const cmd = payload.command ? `: ${payload.command}` : "";
+    return `${mode}${cmd}`;
+  }
+  if (et === "response" || et === "ui_response") return payload.response || "User response sent";
+  return JSON.stringify(payload);
 }
 
 function promptMessageClass(payload) {
@@ -72,7 +123,7 @@ function promptMessageClass(payload) {
 function setState(newState) {
   state = newState;
   statusChip.textContent = humanizeMode(state.mode);
-  sessionBox.textContent = JSON.stringify(state, null, 2);
+  renderSession(state);
 
   if (state.mode !== lastMode) {
     addStoryLine(`State: ${humanizeMode(lastMode)} → ${humanizeMode(state.mode)}`);
@@ -87,6 +138,71 @@ function setState(newState) {
   }
 
   updateActionChrome();
+}
+
+function renderSession(s) {
+  const showPrompt = INTERACTIVE_MODES.has(s.mode);
+  const lp = showPrompt ? (s.latest_prompt || null) : null;
+  const suggestions = (lp && lp.suggested_replies) || [];
+  const modeLabel = humanizeMode(s.mode);
+
+  const parts = [];
+  parts.push(`<div class="session-row"><span class="k">Mode</span><span class="v">${escapeHtml(modeLabel)}</span></div>`);
+  parts.push(`<div class="session-row"><span class="k">Request</span><span class="v">${escapeHtml(s.request_id || "—")}</span></div>`);
+  parts.push(`<div class="session-row"><span class="k">Turn</span><span class="v">${escapeHtml(String(s.turn ?? 0))}</span></div>`);
+  parts.push(`<div class="session-row"><span class="k">Command</span><span class="v">${escapeHtml(s.command || "—")}</span></div>`);
+
+  if (lp) {
+    parts.push(`<div class="session-section">Prompt</div>`);
+    parts.push(`<div class="session-row"><span class="k">Type</span><span class="v">${escapeHtml(lp.prompt_type || "—")}</span></div>`);
+    parts.push(`<div class="session-row"><span class="k">Issue</span><span class="v">${escapeHtml(lp.issue_category || "—")}</span></div>`);
+    parts.push(`<div class="session-row"><span class="k">Intent</span><span class="v">${escapeHtml(lp.intent_summary || "—")}</span></div>`);
+    parts.push(`<div class="session-note">${escapeHtml(lp.message || "")}</div>`);
+
+    if (suggestions.length) {
+      const chips = suggestions
+        .map(
+          (x) =>
+            `<button type="button" class="session-chip session-suggestion" data-suggestion="${escapeHtml(x)}">${escapeHtml(x)}</button>`
+        )
+        .join("");
+      parts.push(`<div class="session-section">Suggestions</div>`);
+      parts.push(`<div class="session-chip-wrap">${chips}</div>`);
+    }
+  } else {
+    parts.push(`<div class="session-section">Prompt</div>`);
+    parts.push(`<div class="session-row"><span class="k">Status</span><span class="v">No pending prompt</span></div>`);
+  }
+
+  sessionBox.innerHTML = parts.join("");
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function lastFeedUserLine() {
+  const msgs = feed.querySelectorAll('.msg[data-kind="user"]');
+  if (!msgs.length) return null;
+  const t = msgs[msgs.length - 1].textContent || "";
+  if (t.startsWith("You: ")) return t.slice(5);
+  return t;
+}
+
+function appendUserFeedLine(text) {
+  const line = `You: ${text}`;
+  if (lastFeedUserLine() === text) return;
+  addMessage(line, "user");
+}
+
+function appendPromptFeedLine(payload) {
+  const cls = promptMessageClass(payload);
+  addMessage(payload.message || JSON.stringify(payload), cls);
 }
 
 function updateActionChrome() {
@@ -132,11 +248,18 @@ async function fetchEvents() {
   const res = await fetch(`/api/events?since_id=${lastEventId}`);
   const json = await res.json();
   (json.events || []).forEach((ev) => {
+    if (renderedEventIds.has(ev.event_id)) return;
+    renderedEventIds.add(ev.event_id);
     lastEventId = Math.max(lastEventId, ev.event_id);
     addTimeline(ev);
+    if (ev.event_type === "ui_command" && ev.payload && ev.payload.text) {
+      appendUserFeedLine(ev.payload.text);
+    }
+    if (ev.event_type === "ui_response" && ev.payload && ev.payload.response) {
+      appendUserFeedLine(ev.payload.response);
+    }
     if (ev.event_type === "prompt") {
-      const cls = promptMessageClass(ev.payload);
-      addMessage(ev.payload.message || JSON.stringify(ev.payload), cls);
+      appendPromptFeedLine(ev.payload || {});
     }
   });
 }
@@ -146,11 +269,18 @@ function startEventStream() {
     const source = new EventSource(`/api/stream?since_id=${lastEventId}`);
     source.onmessage = (event) => {
       const ev = JSON.parse(event.data);
+      if (renderedEventIds.has(ev.event_id)) return;
+      renderedEventIds.add(ev.event_id);
       lastEventId = Math.max(lastEventId, ev.event_id || 0);
       addTimeline(ev);
+      if (ev.event_type === "ui_command" && ev.payload && ev.payload.text) {
+        appendUserFeedLine(ev.payload.text);
+      }
+      if (ev.event_type === "ui_response" && ev.payload && ev.payload.response) {
+        appendUserFeedLine(ev.payload.response);
+      }
       if (ev.event_type === "prompt") {
-        const cls = promptMessageClass(ev.payload);
-        addMessage(ev.payload.message || JSON.stringify(ev.payload), cls);
+        appendPromptFeedLine(ev.payload || {});
       }
     };
     source.onerror = () => {
@@ -224,9 +354,18 @@ editSubmit.addEventListener("click", async () => {
   await sendResponse(t);
 });
 
+sessionBox.addEventListener("click", async (e) => {
+  const target = e.target.closest(".session-suggestion");
+  if (!target) return;
+  const text = (target.dataset.suggestion || "").trim();
+  if (!text) return;
+  await sendResponse(text);
+});
+
 async function boot() {
   addStoryLine("Console ready.");
   await fetchState();
+  await fetchEvents();
   setInterval(fetchState, 800);
   startEventStream();
 }
