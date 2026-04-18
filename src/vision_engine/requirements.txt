@@ -1,0 +1,7 @@
+# Vision Engine Dependencies
+# Install: pip install -r requirements.txt
+
+numpy>=1.21              # Array math, linear algebra
+opencv-python>=4.5       # Image processing, 2D visualization
+matplotlib>=3.5          # Real-time pose plotting (--plot mode)
+pyyaml>=6.0              # YAML config file parsing

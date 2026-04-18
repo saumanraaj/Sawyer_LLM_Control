@@ -1,0 +1,23 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="color_filter" default="blue"/>
+  <arg name="max_objects" default="1"/>
+  <arg name="auto_pickup" default="false"/>
+
+  <!-- Load config to param server -->
+  <rosparam file="$(find sawyer_vision_tracker)/config/vision_tracker.yaml" command="load"/>
+
+  <!-- Joint state relay (required for MoveIt planning) -->
+  <node name="joint_state_relay" pkg="sawyer_vision_tracker" type="joint_states_relay.py" output="screen"/>
+
+  <!-- Vision node: detection + tracking + TF + publish pose -->
+  <node name="vision_tracker_node" pkg="sawyer_vision_tracker" type="vision_node.py" output="screen">
+    <param name="color_filter" value="$(arg color_filter)"/>
+    <param name="max_objects" value="$(arg max_objects)"/>
+  </node>
+
+  <!-- Pickup node: subscribes to pose, executes grasp sequence -->
+  <node name="pickup_node" pkg="sawyer_vision_tracker" type="pickup_node.py" output="screen">
+    <param name="auto_pickup" value="$(arg auto_pickup)"/>
+  </node>
+</launch>

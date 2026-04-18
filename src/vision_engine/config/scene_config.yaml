@@ -1,0 +1,95 @@
+# Vision Engine — Scene Configuration
+#
+# Writers: Nguyen Nguyen (Alan), Sauman Raaj
+#
+# Configures:
+#   - OptiTrack V120:Trio connection parameters
+#   - Calibration settings
+#   - Robot workspace bounds
+#   - Object registry (maps rigid body names to shapes/colors)
+#   - Depth estimation settings
+#
+# Object names in the 'objects' section MUST exactly match the rigid body
+# names defined in Motive.
+
+
+# --- OptiTrack V120:Trio Connection ---
+# server_ip:     IP of Windows PC running Motive
+# multicast_ip:  NatNet multicast group (default 239.255.42.99)
+# command_port:  NatNet command port (default 1510, unicast)
+# data_port:     NatNet data port (default 1511, multicast)
+# up_axis:       Motive's up-axis ("y" default or "z")
+#                The engine converts to Z-up internally.
+optitrack:
+  server_ip: "192.168.0.101"
+  local_ip: "192.168.0.100"
+  multicast_ip: "239.255.42.99"
+  command_port: 1510
+  data_port: 1511
+  up_axis: "y"
+
+
+# --- Calibration ---
+# file:       Path to calibration YAML (auto-loaded if it exists)
+# tool_body:  Rigid body name of the calibration tool in Motive
+calibration:
+  file: "config/calibration.yaml"
+  tool_body: "Rigid_3_Balls"
+
+
+# --- Robot Workspace Bounds ---
+# All values in meters, Z-up convention.
+# x_min/x_max:   Forward/backward reach limits
+# y_min/y_max:   Left/right reach limits
+# z_min:         Lowest safe height (above table)
+# table_height:  Height of table surface
+workspace:
+  x_min: 0.4
+  x_max: 1.0
+  y_min: -0.6
+  y_max: 0.6
+  z_min: 0.0
+  table_height: 0.7
+
+
+# --- Object Registry ---
+# Maps rigid body names (as in Motive) to physical properties.
+# shape:  "cube" | "cylinder" | "sphere"
+# size:   [width, depth, height] in meters
+# color:  [R, G, B] floats in [0, 1]
+# mass:   kilograms
+objects:
+  # CS-100 Calibration Square — L-shape with 3 retroreflective markers
+  Rigid_3_Balls:
+    render_as: "cs100_lshape"
+    short_arm_length: 0.08
+    long_arm_length: 0.10
+    marker_radius: 0.008
+    corner_color: [1.0, 1.0, 0.0]
+    short_arm_color: [1.0, 0.5, 0.0]
+    long_arm_color: [0.0, 1.0, 0.0]
+    line_color: [0.9, 0.9, 0.9]
+    mass: 0.2
+    is_calibration_tool: true
+
+  cube_1:
+    shape: "cube"
+    size: [0.05, 0.05, 0.05]
+    color: [1.0, 0.0, 0.0]
+    mass: 0.1
+
+  cylinder_1:
+    shape: "cylinder"
+    radius: 0.025
+    height: 0.08
+    color: [0.0, 0.0, 1.0]
+    mass: 0.05
+
+
+# --- Depth Estimation ---
+# Used by run_calibration.py --mode depth to estimate camera-to-floor distance.
+depth_estimation:
+  cs100_body: "Rigid_3_Balls"
+  num_samples: 60
+  flatness_threshold_deg: 5.0
+  distance_tolerance_mm: 2.0

@@ -82,6 +82,42 @@ rosrun sawyer_llm_executor joint_states_relay.py
 
 - **No robot (sim/fake only)**: Run `rosrun sawyer_llm_executor fake_joint_states.py` first, then the relay.
 
+### Optional - Vision tracker (`sawyer_vision_tracker`)
+
+Use this when you want the LLM listener to read **tracked object pose** from the camera (`/vision_tracker/target_pose`, `/vision_tracker/target_valid`).
+
+1. **Camera TF**: `vision_node` publishes poses in `base` using TF from `front_cam_link` (see `config/vision_tracker.yaml`). You must provide a correct transform from `base` to `front_cam_link` (for example `static_transform_publisher` with measured mount pose). Wrong TF dominates localization error.
+
+2. **Do not duplicate the joint relay**: Use `vision_tracker_llm.launch`, not `vision_pickup.launch`, while `joint_states_relay.py` from this repo is already running (the pickup launch starts its own relay and would conflict).
+
+3. **Start vision** (after sourcing the workspace, same ROS master as the robot):
+
+   ```bash
+   cd /home/sauman25/ros_ws
+   source intera.sh
+   # With ZED over UVC publishing /camera/color/image_raw:
+   roslaunch sawyer_vision_tracker vision_tracker_llm.launch zed:=true
+   ```
+
+   If another node already publishes `/camera/color/image_raw`, omit `zed` (default `false`):
+
+   ```bash
+   roslaunch sawyer_vision_tracker vision_tracker_llm.launch
+   ```
+
+4. **Sanity check**:
+
+   ```bash
+   rostopic echo /vision_tracker/target_valid
+   rostopic echo /vision_tracker/target_pose
+   ```
+
+The listener injects a short **vision summary** into the GPT prompt and accepts **`move_to` with `[x, y, z]`** when the model targets the tracked object. Two-number `move_to` still defaults **z = 0.6** m.
+
+**Deterministic phrases** (no OpenAI call): if vision is fresh, phrases like **go to the cube**, **move to the blue cube**, **move to the detected object**, or **go to what the camera sees** run `move_to` directly from the last valid pose. Staleness defaults to **2 s** (`~vision_stale_sec` on `llm_command_listener`).
+
+**Limits**: Fixed-Z depth and approximate intrinsics in `vision_tracker.yaml` limit accuracy; tune YAML and TF for your table and mount.
+
 ### Terminal 5 - Start LLM Command Listener
 
 ```bash
@@ -121,6 +157,10 @@ rostopic pub -1 /llm/user_input std_msgs/String "data: 'open gripper'"
 
 # Close gripper
 rostopic pub -1 /llm/user_input std_msgs/String "data: 'close gripper'"
+
+# Vision-backed (requires vision_tracker running and object visible)
+rostopic pub -1 /llm/user_input std_msgs/String "data: 'go to the cube'"
+rostopic pub -1 /llm/user_input std_msgs/String "data: 'move to the blue cube'"
 ```
 
 ## System Status Checklist
@@ -132,6 +172,7 @@ After setup, verify:
 - ✓ MoveIt running (Terminal 3 shows "Ready to take commands")
 - ✓ Joint states available (`rostopic echo /joint_states` shows data)
 - ✓ LLM listener running (Terminal 5 shows "Listening for LLM user commands...")
+- ✓ (Optional) Vision: `target_valid` toggles when the object enters/leaves view; TF `base` → `front_cam_link` is set
 
 ## Troubleshooting
 

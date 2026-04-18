@@ -1,0 +1,12 @@
+<launch>
+  <!-- Vision pipeline for LLM stack: no joint_states relay (use sawyer_llm_executor relay). -->
+  <arg name="zed" default="false" doc="If true, start ZED UVC bridge to /camera/color/image_raw"/>
+
+  <rosparam file="$(find sawyer_vision_tracker)/config/vision_tracker.yaml" command="load"/>
+
+  <node pkg="sawyer_vision_tracker" type="zed_raw_publisher.py" name="zed_raw_publisher"
+        output="screen" if="$(arg zed)"/>
+
+  <node pkg="sawyer_vision_tracker" type="vision_node.py" name="vision_tracker_node"
+        output="screen"/>
+</launch>

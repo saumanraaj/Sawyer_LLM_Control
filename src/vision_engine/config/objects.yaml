@@ -1,0 +1,51 @@
+# objects.yaml — Object Registry for Scene State Publisher
+#
+# Writers: Nguyen Nguyen (Alan), Sauman Raaj
+#
+# Maps logical object names to their OptiTrack rigid body names
+# and physical properties. scene_state_publisher.py reads this file
+# to build the scene state message.
+#
+# HOW TO ADD A NEW OBJECT:
+#   1. Create a rigid body in Motive with 3-4 retroreflective markers
+#   2. Note the rigid body name (e.g., "rigid_body_4")
+#   3. Add an entry below with optitrack_body, class, color, dimensions_m
+#   4. Restart scene_state_publisher.py — no code changes needed
+
+objects:
+  red_cube:
+    optitrack_body: "rigid_body_1"
+    class: cube
+    color: red
+    dimensions_m: [0.05, 0.05, 0.05]
+
+  blue_cube:
+    optitrack_body: "rigid_body_2"
+    class: cube
+    color: blue
+    dimensions_m: [0.05, 0.05, 0.05]
+
+  green_cube:
+    optitrack_body: "rigid_body_3"
+    class: cube
+    color: green
+    dimensions_m: [0.03, 0.03, 0.03]
+
+  blue_cylinder:
+    optitrack_body: "rigid_body_4"
+    class: cylinder
+    color: blue
+    dimensions_m: [0.05, 0.05, 0.08]
+
+  yellow_cylinder:
+    optitrack_body: "rigid_body_5"
+    class: cylinder
+    color: yellow
+    dimensions_m: [0.05, 0.05, 0.08]
+
+  # Add your own objects here. Names must match rigid body names in Motive.
+  # white_mug:
+  #   optitrack_body: "rigid_body_6"
+  #   class: mug
+  #   color: white
+  #   dimensions_m: [0.08, 0.08, 0.10]

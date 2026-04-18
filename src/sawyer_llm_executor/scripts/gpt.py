@@ -1,25 +1,41 @@
 
-import openai
-import os
 import json
+import os
+
+import openai
+
 
 class gpt_api:
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    def get_vlm_output(self, rgb_image, user_command):
+    def get_vlm_output(self, rgb_image, user_command, vision_context=None):
+        vc = vision_context or (
+            "Vision: no reliable tracked object right now "
+            "(nothing visible or data is stale)."
+        )
         prompt = f"""
 You are controlling a Sawyer robot arm.
 
 Output a JSON object with:
 - "actions": list of actions. Use move_relative(dx, dy, dz) for relative moves — each move carries its own offset in meters.
-- "position": [x, y] for move_to — absolute target. Use when user specifies explicit position. Assume z=0.6.
+- "position": for move_to — absolute target in base frame (meters).
+  - Use [x, y] only when the user gives explicit x,y and no vision target; the executor defaults z=0.6 m.
+  - Use [x, y, z] when moving to the tracked object from vision (three numbers required).
 
 For relative moves: use move_relative(dx, dy, dz). Forward=+x, Right=-y, Left=+y, Up=+z.
   - 10 cm forward = move_relative(0.1, 0, 0)
   - 20 cm right = move_relative(0, -0.2, 0)
   - 5 cm left = move_relative(0, 0.05, 0)
   - Multiple moves: each move_relative has its own (dx, dy, dz)
+
+Vision-aware move_to:
+  - If the user asks to go to the cube / tracked object / what the camera sees AND the vision line below reports a valid position, output "actions": ["move_to"] and "position": [x, y, z] using exactly those three numbers (no rounding to fewer than 4 decimals in your head — copy them faithfully).
+  - If vision says there is no reliable object, do not invent a move_to target for the cube; use empty "actions": [] or only non-cube actions the user asked for.
+
+---
+Current perception:
+{vc}
 
 ---
 **Examples:**
@@ -54,52 +70,37 @@ User command: "{user_command}"
         try:
             response = self.client.chat.completions.create(
                 model="gpt-4",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
+                messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=200
+                max_tokens=250,
             )
 
             message_content = response.choices[0].message.content
-            
-            # Check if response is empty
+
             if not message_content or message_content.strip() == "":
-                print(f"GPT API error: Empty response from API")
-                return {
-                    "actions": [],
-                    "position": [0.6, 0.0],
-                    "delta": [0, 0, 0]
-                }
-            
-            # Try to extract JSON if there's extra text
+                print("GPT API error: Empty response from API")
+                return {"actions": [], "position": [0.6, 0.0], "delta": [0, 0, 0]}
+
             message_content = message_content.strip()
-            
-            # Find JSON object in response (in case there's extra text)
-            start_idx = message_content.find('{')
-            end_idx = message_content.rfind('}') + 1
-            
+
+            start_idx = message_content.find("{")
+            end_idx = message_content.rfind("}") + 1
+
             if start_idx != -1 and end_idx > start_idx:
                 json_str = message_content[start_idx:end_idx]
             else:
                 json_str = message_content
-            
+
             output = json.loads(json_str)
             return output
 
         except json.JSONDecodeError as e:
             print(f"GPT API JSON parsing error: {e}")
-            print(f"Response was: {message_content if 'message_content' in locals() else 'N/A'}")
-            return {
-                "actions": [],
-                "position": [0.6, 0.0],
-                "delta": [0, 0, 0]
-            }
+            print(
+                "Response was: "
+                f"{message_content if 'message_content' in locals() else 'N/A'}"
+            )
+            return {"actions": [], "position": [0.6, 0.0], "delta": [0, 0, 0]}
         except Exception as e:
             print(f"GPT API error: {e}")
-            return {
-                "actions": [],
-                "position": [0.6, 0.0],
-                "delta": [0, 0, 0]
-            }
-
+            return {"actions": [], "position": [0.6, 0.0], "delta": [0, 0, 0]}

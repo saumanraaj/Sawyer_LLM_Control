@@ -1,0 +1,61 @@
+detection:
+  # ── Blue cube detector ─────────────────────────────────────────────────────
+  # Tune hsv_lower/upper with the viewer's 'H' mask toggle or click-inspect.
+  # Typical lab lighting: H=100-130, but fluorescent/LED shifts hue ±10.
+  blue_cube:
+    hsv_lower: [95, 100, 60]     # [H_min, S_min, V_min]
+    hsv_upper: [135, 255, 255]   # [H_max, S_max, V_max]
+    min_area: 1000               # px²  — ignore noise smaller than this
+    max_area: 40000              # px²  — ignore objects too large to be the cube
+    min_solidity: 0.80           # contour_area / hull_area  (cube top ≈ 0.90+)
+    max_aspect_ratio_err: 0.40   # |w/h - 1|  (0 = perfect square)
+    morph_kernel_size: 7
+    gaussian_blur: 5
+
+  # ── Legacy multi-colour ranges (used by detect() / generic viewer) ─────────
+  hsv_ranges:
+    - name: "blue"
+      lower: [100, 120, 70]
+      upper: [130, 255, 255]
+      color_bgr: [255, 0, 0]
+    - name: "red"
+      lower: [0, 120, 70]
+      upper: [10, 255, 255]
+      lower2: [170, 120, 70]
+      upper2: [180, 255, 255]
+      color_bgr: [0, 0, 255]
+    - name: "green"
+      lower: [35, 120, 70]
+      upper: [85, 255, 255]
+      color_bgr: [0, 255, 0]
+  min_contour_area: 500
+  morph_kernel_size: 5
+  gaussian_blur: 5
+
+tracking:
+  max_disappeared: 20      # frames before a lost cube is dropped
+  max_distance: 60         # px — max centroid jump between frames
+  smoothing_alpha: 0.35    # EMA: lower = smoother but more lag
+  trajectory_length: 40
+
+camera:
+  image_topic: "/camera/color/image_raw"
+  camera_frame: "front_cam_link"
+  base_frame: "base"
+  intrinsics:
+    # ZED VGA left eye: 672 x 376
+    # cx/cy = frame_centre; fx/fy need proper ZED SDK calibration.
+    # Until calibrated, measure table-to-cube distance and compare
+    # printed vs. converter output to scale fx/fy empirically.
+    fx: 554.3827128226441
+    fy: 554.3827128226441
+    cx: 336.5
+    cy: 188.5
+  fixed_z: 0.70            # metres — camera optical-frame Z to table surface
+
+pickup:
+  approach_height: 0.25    # metres above table before descending
+  grasp_height:    0.05    # metres above table when gripper closes
+  lift_height:     0.15    # metres to rise after grasp
+  settle_time:     1.0     # seconds to wait after gripper closes
+  min_stable_frames: 10    # frames cube must be stable before arm moves
