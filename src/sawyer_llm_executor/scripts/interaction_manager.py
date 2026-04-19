@@ -5,7 +5,13 @@ import json
 import rospy
 from std_msgs.msg import String
 
-from hci_helpers import FRAME_NOTE, format_intent_summary, issue_category, suggested_clarification_commands
+from hci_helpers import (
+    FRAME_NOTE,
+    format_intent_summary,
+    issue_category,
+    suggested_clarification_commands,
+    suggested_replies_workspace_warn,
+)
 
 
 class InteractionManager:
@@ -36,33 +42,42 @@ class InteractionManager:
         reasons = policy_decision.get("reasons", [])
         icat = issue_category(uncertainty_report)
         intent_summary = format_intent_summary(intent)
+        reason_types = {r.get("type") for r in reasons}
         suggested = suggested_clarification_commands(raw_command)
 
         if action == "WARN":
-            msg = "Safety notice — please read before continuing.\n"
+            if "WORKSPACE_LIMIT_RISK" in reason_types:
+                suggested = suggested_replies_workspace_warn(raw_command)
+            # Unsafe as interpreted — do not offer proceed (workspace / oversize / downward).
+            msg = "Safety heads-up — please read this before continuing.\n"
             msg += "\n".join([f"• {r['message']}" for r in reasons])
-            msg += f"\n\nWhat I understood: {intent_summary}"
-            msg += f"\n{FRAME_NOTE}"
-            msg += "\n\nReply with proceed to run as interpreted, cancel to stop, or send a revised command (plain text or start with edit:)."
+            msg += f"\n\nIn short, I’m planning to: {intent_summary}"
+            msg += f"\n\nHow directions work:\n{FRAME_NOTE}"
+            msg += (
+                "\n\nThis motion isn’t safe to run as interpreted. "
+                "Revise the command (e.g. a shorter move), or cancel.\n\n"
+                "Your choice:\n"
+                "Type a revised command, use Revise command, or say cancel."
+            )
             reply = self._prompt_and_wait(
                 msg,
                 request_id=request_id,
                 prompt_type="warning",
                 issue_category=icat,
-                allowed_actions=["proceed", "cancel", "edit", "free_text"],
+                allowed_actions=["cancel", "edit", "free_text"],
                 intent_summary=intent_summary,
                 suggested_replies=suggested,
                 original_command=raw_command,
             )
-            return self._reply_to_result(reply, allow_free_text=True)
+            return self._reply_to_result(reply, allow_free_text=True, allow_execute_confirm=False)
 
         if action == "CLARIFY":
             issue = reasons[0] if reasons else {"message": "I need a bit more detail."}
-            msg = "I’m not sure how far or exactly what you want yet.\n"
+            msg = "I need a bit more detail to move safely.\n"
             msg += f"\nWhy: {issue['message']}"
-            msg += f"\n\nWhat I understood so far: {intent_summary}"
+            msg += f"\n\nSo far I’m picturing: {intent_summary}"
             msg += f"\n{FRAME_NOTE}"
-            msg += "\n\nPlease send a clearer command (distance in cm or m helps), or tap a suggestion in the UI."
+            msg += "\n\nTry something like “move forward 10 cm” or tap a suggestion below."
             reply = self._prompt_and_wait(
                 msg,
                 request_id=request_id,
@@ -76,11 +91,13 @@ class InteractionManager:
             return self._reply_to_result(reply, allow_free_text=True)
 
         if action == "PREVIEW_CONFIRM":
-            msg = "Here is the planned motion.\n\n"
-            msg += preview_text
-            msg += f"\n\nWhat I understood: {intent_summary}"
-            msg += f"\n{FRAME_NOTE}"
-            msg += "\n\nReply proceed to execute, cancel to stop, or send a revised command."
+            # preview_text = request, pose, steps, safety — blocks separated by blank lines.
+            msg = preview_text
+            msg += f"\n\nHow directions work:\n{FRAME_NOTE}"
+            msg += (
+                "\n\nYour choice:\n"
+                "Say proceed to run it, cancel to stop, or type a changed command."
+            )
             reply = self._prompt_and_wait(
                 msg,
                 request_id=request_id,
@@ -94,6 +111,23 @@ class InteractionManager:
             return self._reply_to_result(reply, allow_free_text=True)
 
         return {"outcome": "execute", "edited_command": None}
+
+    def _reply_to_result(self, reply, allow_free_text=False, allow_execute_confirm=True):
+        lowered = reply.lower().strip()
+        if lowered in ("confirm", "proceed", "ok", "yes", "go"):
+            if not allow_execute_confirm:
+                rospy.logwarn(
+                    "[HRI] Proceed/confirm ignored — not allowed for this safety prompt."
+                )
+                return {"outcome": "cancel", "edited_command": None}
+            return {"outcome": "execute", "edited_command": None}
+        if lowered in ("cancel", "stop", "no"):
+            return {"outcome": "cancel", "edited_command": None}
+        if lowered.startswith("edit:"):
+            return {"outcome": "edit", "edited_command": reply[5:].strip()}
+        if allow_free_text and reply:
+            return {"outcome": "edit", "edited_command": reply}
+        return {"outcome": "cancel", "edited_command": None}
 
     def _prompt_and_wait(
         self,
@@ -126,15 +160,3 @@ class InteractionManager:
         except rospy.ROSException:
             rospy.logwarn("No user response received before timeout; cancelling request.")
             return "cancel"
-
-    def _reply_to_result(self, reply, allow_free_text=False):
-        lowered = reply.lower().strip()
-        if lowered in ("confirm", "proceed", "ok", "yes", "go"):
-            return {"outcome": "execute", "edited_command": None}
-        if lowered in ("cancel", "stop", "no"):
-            return {"outcome": "cancel", "edited_command": None}
-        if lowered.startswith("edit:"):
-            return {"outcome": "edit", "edited_command": reply[5:].strip()}
-        if allow_free_text and reply:
-            return {"outcome": "edit", "edited_command": reply}
-        return {"outcome": "cancel", "edited_command": None}

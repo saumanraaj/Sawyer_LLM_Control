@@ -131,7 +131,7 @@ function setState(newState) {
   }
 
   if (state.intent_summary) {
-    intentBar.textContent = `Interpreted: ${state.intent_summary}`;
+    intentBar.textContent = `In plain words: ${state.intent_summary}`;
     intentBar.classList.remove("hidden");
   } else {
     intentBar.classList.add("hidden");
@@ -156,7 +156,7 @@ function renderSession(s) {
     parts.push(`<div class="session-section">Prompt</div>`);
     parts.push(`<div class="session-row"><span class="k">Type</span><span class="v">${escapeHtml(lp.prompt_type || "—")}</span></div>`);
     parts.push(`<div class="session-row"><span class="k">Issue</span><span class="v">${escapeHtml(lp.issue_category || "—")}</span></div>`);
-    parts.push(`<div class="session-row"><span class="k">Intent</span><span class="v">${escapeHtml(lp.intent_summary || "—")}</span></div>`);
+    parts.push(`<div class="session-row"><span class="k">Short summary</span><span class="v">${escapeHtml(lp.intent_summary || "—")}</span></div>`);
     parts.push(`<div class="session-note">${escapeHtml(lp.message || "")}</div>`);
 
     if (suggestions.length) {
@@ -213,13 +213,18 @@ function updateActionChrome() {
   const lp = state.latest_prompt || {};
   const suggested = lp.suggested_replies || [];
   const ptype = lp.prompt_type;
+  const allowed = lp.allowed_actions;
+  const canProceed =
+    allowed == null || allowed.length === 0
+      ? mode !== "awaiting_warning_ack"
+      : allowed.includes("proceed");
 
   proceedBtn.classList.add("hidden");
   cancelBtn.classList.add("hidden");
   editBtn.classList.add("hidden");
 
   if (mode === "awaiting_warning_ack" || mode === "awaiting_confirmation") {
-    proceedBtn.classList.remove("hidden");
+    if (canProceed) proceedBtn.classList.remove("hidden");
     cancelBtn.classList.remove("hidden");
     editBtn.classList.remove("hidden");
   } else if (mode === "awaiting_clarification") {
