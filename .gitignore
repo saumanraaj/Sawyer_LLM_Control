@@ -1,0 +1,10 @@
+# Catkin / ROS workspace build products
+build/
+devel/
+logs/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
