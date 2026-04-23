@@ -1,8 +1,21 @@
 <launch>
   <!-- Vision pipeline for LLM stack: no joint_states relay (use sawyer_llm_executor relay). -->
   <arg name="zed" default="false" doc="If true, start ZED UVC bridge to /camera/color/image_raw"/>
+  <arg name="publish_static_tf" default="true" doc="Publish base -> front_cam_link static transform"/>
+  <arg name="cam_x" default="0.55" doc="Camera x in base frame (m)"/>
+  <arg name="cam_y" default="-0.25" doc="Camera y in base frame (m)"/>
+  <arg name="cam_z" default="0.83" doc="Camera z in base frame (m)"/>
+  <arg name="cam_roll" default="0.0" doc="Camera roll in base frame (rad)"/>
+  <arg name="cam_pitch" default="0.0" doc="Camera pitch in base frame (rad)"/>
+  <arg name="cam_yaw" default="0.0" doc="Camera yaw in base frame (rad)"/>
+  <arg name="table_z_base" default="0.73" doc="Table height in base frame (m) for table-plane projection"/>
 
   <rosparam file="$(find sawyer_vision_tracker)/config/vision_tracker.yaml" command="load"/>
+  <param name="/camera/table_z_base" value="$(arg table_z_base)"/>
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_static_tf"
+        args="$(arg cam_x) $(arg cam_y) $(arg cam_z) $(arg cam_roll) $(arg cam_pitch) $(arg cam_yaw) base front_cam_link"
+        if="$(arg publish_static_tf)"/>
 
   <node pkg="sawyer_vision_tracker" type="zed_raw_publisher.py" name="zed_raw_publisher"
         output="screen" if="$(arg zed)"/>

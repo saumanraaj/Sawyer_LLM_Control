@@ -57,7 +57,20 @@ class BlueCubeTrackerNode:
             camera_frame=camera_cfg.get("camera_frame", "front_cam_link"),
             base_frame=camera_cfg.get("base_frame",   "base"),
         )
+        self.projection_mode = camera_cfg.get("projection_mode", "table_plane")
         self.fixed_z = camera_cfg.get("fixed_z", 0.70)
+        self.table_z_base = camera_cfg.get("table_z_base", 0.0)
+        pose_offset = camera_cfg.get("pose_offset", [0.0, 0.0, 0.0])
+        if not isinstance(pose_offset, (list, tuple)) or len(pose_offset) != 3:
+            rospy.logwarn(
+                "[BlueCubeTracker] camera.pose_offset must be a 3-element list; using zeros."
+            )
+            pose_offset = [0.0, 0.0, 0.0]
+        self.pose_offset = (
+            float(pose_offset[0]),
+            float(pose_offset[1]),
+            float(pose_offset[2]),
+        )
 
         # ── publishers ───────────────────────────────────────────────────────
         self.pose_pub  = rospy.Publisher(
@@ -87,19 +100,45 @@ class BlueCubeTrackerNode:
         # ── detect single blue cube ───────────────────────────────────────────
         det = self.detector.detect_blue_cube(frame)
 
-        # Feed tracker (handles brief disappearances + EMA smoothing)
+        # Feed tracker (handles brief disappearances + EMA smoothing).
+        # For control/publishing, only treat detections from the CURRENT frame
+        # as valid targets; do not reuse stale tracked positions.
         tracked_list = self.tracker.update([det] if det is not None else [])
-        cube = tracked_list[0] if tracked_list else None
+        cube = None
+        if det is not None and tracked_list:
+            # IMPORTANT: don't pick tracked_list[0] blindly — if the detector jumps
+            # farther than max_distance, tracker can keep an older object first in
+            # dict order and register a new one, making control appear "stuck".
+            # Choose the tracked object that best matches current-frame detection.
+            def _dist2(obj):
+                dx = float(obj.raw_centroid[0]) - float(det.centroid[0])
+                dy = float(obj.raw_centroid[1]) - float(det.centroid[1])
+                return dx * dx + dy * dy
+
+            visible = [obj for obj in tracked_list if obj.disappeared == 0]
+            pool = visible if visible else tracked_list
+            cube = min(pool, key=lambda obj: (_dist2(obj), obj.disappeared))
 
         # ── localise and publish ──────────────────────────────────────────────
         target_valid = False
         base_coords  = None
 
-        if cube is not None:
+        if det is not None and cube is not None:
             u, v = int(cube.centroid[0]), int(cube.centroid[1])
-            base_coords = self.converter.pixel_to_base(u, v, self.fixed_z)
+            base_coords = self.converter.pixel_to_base(
+                u,
+                v,
+                fixed_z=self.fixed_z,
+                projection_mode=self.projection_mode,
+                table_z_base=self.table_z_base,
+            )
 
             if base_coords is not None:
+                base_coords = (
+                    base_coords[0] + self.pose_offset[0],
+                    base_coords[1] + self.pose_offset[1],
+                    base_coords[2] + self.pose_offset[2],
+                )
                 target_valid = True
                 pose          = PoseStamped()
                 pose.header.stamp    = rospy.Time.now()
@@ -111,6 +150,27 @@ class BlueCubeTrackerNode:
                 self.pose_pub.publish(pose)
 
         self.valid_pub.publish(Bool(data=target_valid))
+
+        dbg = self.detector.get_last_blue_debug()
+        if dbg:
+            cxy = dbg.get("chosen_centroid")
+            cxy_txt = f"{cxy}" if cxy is not None else "None"
+            rospy.loginfo_throttle(
+                1.0,
+                (
+                    "[BlueCubeTracker][dbg] "
+                    f"mask_px={dbg.get('mask_px', 0)} "
+                    f"contours={dbg.get('contours_total', 0)} "
+                    f"roi={dbg.get('roi_candidates', 0)} "
+                    f"chosen={dbg.get('chosen', False)} "
+                    f"score={dbg.get('chosen_score', float('-inf')):.2f} "
+                    f"centroid={cxy_txt} "
+                    f"area={dbg.get('chosen_area', 0.0):.1f} "
+                    f"track_id={cube.id if cube is not None else 'None'} "
+                    f"track_dis={cube.disappeared if cube is not None else -1} "
+                    f"valid={target_valid}"
+                ),
+            )
 
         # ── visualise ────────────────────────────────────────────────────────
         self._draw(frame, det, cube, base_coords)
@@ -148,11 +208,13 @@ class BlueCubeTrackerNode:
                 cv2.putText(frame, txt, (x, y - 10 - k * 16),
                             FONT, 0.45, col, 1)
 
-        # base-frame coordinates
+        # base-frame coordinates / status
         fh = frame.shape[0]
         if base_coords is not None:
             bx, by, bz = base_coords
             txt = f"Base: ({bx:.3f}, {by:.3f}, {bz:.3f}) m"
+        elif det is None or cube is None:
+            txt = "Base: no detection"
         else:
             txt = "Base: no TF"
         cv2.putText(frame, txt, (10, fh - 12), FONT, 0.50, (0, 0, 0),    2)

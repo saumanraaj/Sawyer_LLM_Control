@@ -49,6 +49,20 @@ class Detector:
         self._bc_max_area       = bc.get("max_area",           40000)
         self._bc_min_solidity   = bc.get("min_solidity",         0.80)
         self._bc_max_aspect_err = bc.get("max_aspect_ratio_err", 0.40)
+        self._bc_min_extent     = bc.get("min_extent",           0.60)
+        # Reject blue blobs outside the expected tabletop image region.
+        self._bc_min_center_y_frac = bc.get("min_center_y_frac", 0.45)
+        self._bc_max_center_y_frac = bc.get("max_center_y_frac", 1.00)
+        # Candidate scoring (higher is better). Distance term stabilizes lock.
+        self._bc_score_area_w = bc.get("score_area_weight", 1.0)
+        self._bc_score_shape_w = bc.get("score_shape_weight", 1.0)
+        self._bc_score_dist_w = bc.get("score_distance_weight", 1.5)
+        self._bc_score_dist_norm_px = bc.get("score_distance_norm_px", 120.0)
+        self._bc_enable_fallback = bc.get("enable_fallback", True)
+        self._bc_fallback_min_area_ratio = bc.get("fallback_min_area_ratio", 0.90)
+        self._bc_fallback_max_jump_ratio = bc.get("fallback_max_jump_ratio", 1.20)
+        self._bc_last_centroid: tuple[float, float] | None = None
+        self._bc_last_debug: dict = {}
 
         bc_morph_k = bc.get("morph_kernel_size", morph_k)
         self._bc_morph_kernel = cv2.getStructuringElement(
@@ -99,43 +113,27 @@ class Detector:
         )
 
         best: Detection | None = None
-        best_area = 0.0
+        best_score = float("-inf")
+        fallback: Detection | None = None
+        fallback_score = float("-inf")
+        mask_px = int(mask.sum() / 255)
+        roi_candidate_count = 0
 
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < self._bc_min_area or area > self._bc_max_area:
-                continue
-
-            # ── solidity filter ───────────────────────────────────────────────
-            hull      = cv2.convexHull(cnt)
-            hull_area = cv2.contourArea(hull)
-            if hull_area == 0:
-                continue
-            solidity = area / hull_area
-            if solidity < self._bc_min_solidity:
-                continue
-
-            # ── aspect-ratio filter ───────────────────────────────────────────
-            x, y, bw, bh = cv2.boundingRect(cnt)
-            aspect = bw / bh if bh > 0 else 0.0
-            if abs(aspect - 1.0) > self._bc_max_aspect_err:
-                continue
-
-            # ── keep largest passing candidate ────────────────────────────────
-            if area <= best_area:
-                continue
-            best_area = area
-
-            M = cv2.moments(cnt)
-            if M["m00"] == 0:
-                continue
-            cx_px = int(M["m10"] / M["m00"])
-            cy_px = int(M["m01"] / M["m00"])
-
+        def build_detection(
+            cnt: np.ndarray,
+            area: float,
+            x: int,
+            y: int,
+            bw: int,
+            bh: int,
+            cx_px: int,
+            cy_px: int,
+            solidity: float,
+            aspect: float,
+        ) -> Detection:
             obj_mask = np.zeros((h, w), dtype=np.uint8)
             cv2.drawContours(obj_mask, [cnt], -1, 255, cv2.FILLED)
-
-            best = Detection(
+            return Detection(
                 centroid=(cx_px, cy_px),
                 bbox=(x, y, bw, bh),
                 contour=cnt,
@@ -147,7 +145,113 @@ class Detector:
                 aspect_ratio=aspect,
             )
 
-        return best
+        # Keep candidate areas close to expected cube area; this avoids tiny noise blobs.
+        soft_min_area = max(150.0, float(self._bc_min_area) * 0.85)
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < soft_min_area or area > self._bc_max_area:
+                continue
+
+            # ── shape metrics ─────────────────────────────────────────────────
+            hull      = cv2.convexHull(cnt)
+            hull_area = cv2.contourArea(hull)
+            if hull_area == 0:
+                continue
+            solidity = area / hull_area
+
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            aspect = bw / bh if bh > 0 else 0.0
+
+            bbox_area = float(bw * bh)
+            if bbox_area <= 0:
+                continue
+            extent = area / bbox_area
+
+            M = cv2.moments(cnt)
+            if M["m00"] == 0:
+                continue
+            cx_px = int(M["m10"] / M["m00"])
+            cy_px = int(M["m01"] / M["m00"])
+
+            cy_frac = cy_px / float(h)
+            if (
+                cy_frac < self._bc_min_center_y_frac
+                or cy_frac > self._bc_max_center_y_frac
+            ):
+                continue
+            roi_candidate_count += 1
+
+            det_obj = build_detection(
+                cnt, area, x, y, bw, bh, cx_px, cy_px, solidity, aspect
+            )
+
+            area_n = min(area / max(float(self._bc_min_area), 1.0), 2.0)
+            aspect_n = max(0.0, 1.0 - abs(aspect - 1.0))
+            shape_n = (solidity + extent + aspect_n) / 3.0
+            dist_n = 0.0
+            if self._bc_last_centroid is not None:
+                dx = cx_px - self._bc_last_centroid[0]
+                dy = cy_px - self._bc_last_centroid[1]
+                dist_px = float(np.hypot(dx, dy))
+                dist_n = min(dist_px / max(self._bc_score_dist_norm_px, 1.0), 2.0)
+            score = (
+                self._bc_score_area_w * area_n
+                + self._bc_score_shape_w * shape_n
+                - self._bc_score_dist_w * dist_n
+            )
+
+            strict_ok = (
+                area >= self._bc_min_area
+                and solidity >= self._bc_min_solidity
+                and abs(aspect - 1.0) <= self._bc_max_aspect_err
+                and extent >= self._bc_min_extent
+            )
+            if strict_ok and score > best_score:
+                best_score = score
+                best = det_obj
+
+            # Keep a softer fallback candidate in case strict checks reject all.
+            # This helps avoid "no tracking" when perspective/lighting distorts shape.
+            fallback_ok = (
+                self._bc_enable_fallback
+                and area >= max(150.0, self._bc_min_area * self._bc_fallback_min_area_ratio)
+                and solidity >= max(0.55, self._bc_min_solidity - 0.10)
+                and abs(aspect - 1.0) <= (self._bc_max_aspect_err + 0.25)
+                and extent >= max(0.30, self._bc_min_extent - 0.10)
+                and (
+                    self._bc_last_centroid is None
+                    or dist_n <= self._bc_fallback_max_jump_ratio
+                )
+            )
+            if fallback_ok and score > fallback_score:
+                fallback_score = score
+                fallback = det_obj
+
+        chosen = best if best is not None else fallback
+        if chosen is not None:
+            self._bc_last_centroid = (
+                float(chosen.centroid[0]),
+                float(chosen.centroid[1]),
+            )
+            chosen_score = best_score if best is not None else fallback_score
+        else:
+            chosen_score = float("-inf")
+
+        self._bc_last_debug = {
+            "mask_px": mask_px,
+            "contours_total": len(contours),
+            "roi_candidates": roi_candidate_count,
+            "chosen": chosen is not None,
+            "chosen_score": chosen_score,
+            "chosen_centroid": chosen.centroid if chosen is not None else None,
+            "chosen_area": float(chosen.area) if chosen is not None else 0.0,
+        }
+        return chosen
+
+    def get_last_blue_debug(self) -> dict:
+        """Return debug info from the last detect_blue_cube call."""
+        return dict(self._bc_last_debug)
 
     def get_blue_mask(self, frame: np.ndarray) -> np.ndarray:
         """Return the binary HSV mask used by detect_blue_cube (for visualisation)."""
